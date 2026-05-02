@@ -1,0 +1,5 @@
+{
+  "name": "Activity Tracker",
+  "description": "Student activity tracker for React Native course with teacher dashboard and student view.",
+  "requestFramePermissions": []
+}
