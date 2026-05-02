@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { Student, Submission, ACTIVITIES, SubmissionStatus, Remark, STATUS_LABELS, REMARK_LABELS, ActivityKey } from '../types';
 import { StatusIcon } from '../components/StatusIcon';
-import { LogOut, Users, Download, AlertTriangle, X, Plus } from 'lucide-react';
+import { LogOut, Users, Download, AlertTriangle, X, Plus, Trash2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import * as Papa from 'papaparse';
 
@@ -27,6 +27,7 @@ export function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [bulkInput, setBulkInput] = useState('');
+  const [selectedStudents, setSelectedStudents] = useState<Set<string>>(new Set());
   
   // Right-click context menu state
   const [contextMenu, setContextMenu] = useState<{
@@ -113,10 +114,13 @@ export function Dashboard() {
   const handleBulkAdd = async () => {
     const lines = bulkInput.split('\n').filter(l => l.trim().length > 0);
     const newStudents = lines.map(line => {
-      const parts = line.split(',');
+      let parts = line.split(',');
+      if (parts.length === 1) {
+        parts = line.trim().split(/\s+/);
+      }
       return {
         lastname: parts[0]?.trim() || '',
-        firstname: parts[1]?.trim() || ''
+        firstname: parts.slice(1).join(' ').trim() || ''
       };
     }).filter(s => s.lastname && s.firstname);
 
@@ -127,6 +131,47 @@ export function Dashboard() {
       setAddModalOpen(false);
       await fetchData();
     }
+  };
+
+  const toggleStudentSelection = (studentId: string) => {
+    const newSelected = new Set(selectedStudents);
+    if (newSelected.has(studentId)) {
+      newSelected.delete(studentId);
+    } else {
+      newSelected.add(studentId);
+    }
+    setSelectedStudents(newSelected);
+  };
+
+  const toggleAllSelection = () => {
+    if (selectedStudents.size === students.length) {
+      setSelectedStudents(new Set());
+    } else {
+      setSelectedStudents(new Set(students.map(s => s.id)));
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedStudents.size === 0) return;
+    if (!window.confirm(`Are you sure you want to delete ${selectedStudents.size} student(s)?`)) return;
+
+    setLoading(true);
+    await supabase.from('students').delete().in('id', Array.from(selectedStudents));
+    setSelectedStudents(new Set());
+    await fetchData();
+  };
+
+  const handleDeleteStudent = async (studentId: string, name: string) => {
+    if (!window.confirm(`Are you sure you want to delete ${name}?`)) return;
+
+    setLoading(true);
+    await supabase.from('students').delete().eq('id', studentId);
+    setSelectedStudents(prev => {
+      const next = new Set(prev);
+      next.delete(studentId);
+      return next;
+    });
+    await fetchData();
   };
 
   const handleStatusCycle = async (studentId: string, activityKey: ActivityKey, currentStatus: SubmissionStatus | undefined) => {
@@ -262,6 +307,15 @@ export function Dashboard() {
           </div>
 
           <div className="flex gap-3">
+            {selectedStudents.size > 0 && (
+              <button
+                onClick={handleDeleteSelected}
+                className="flex items-center gap-2 bg-rose-600 text-white px-4 py-2 rounded-md font-medium text-sm hover:bg-rose-700 transition"
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete Selected ({selectedStudents.size})
+              </button>
+            )}
             <button
               onClick={() => setAddModalOpen(true)}
               className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-md font-medium text-sm hover:bg-indigo-700 transition"
@@ -284,7 +338,15 @@ export function Dashboard() {
           <table className="w-full text-left whitespace-nowrap min-w-max">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
-                <th className="px-4 py-3 font-semibold text-slate-700 w-[200px] sticky left-0 bg-slate-50 shadow-[1px_0_0_0_#e2e8f0]">Student</th>
+                <th className="px-4 py-3 font-semibold text-slate-700 w-10 sticky left-0 bg-slate-50">
+                  <input 
+                    type="checkbox" 
+                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                    checked={students.length > 0 && selectedStudents.size === students.length}
+                    onChange={toggleAllSelection}
+                  />
+                </th>
+                <th className="px-4 py-3 font-semibold text-slate-700 w-[200px] sticky left-10 bg-slate-50 shadow-[1px_0_0_0_#e2e8f0]">Student</th>
                 {ACTIVITIES.map(act => (
                   <th key={act} className="px-4 py-3 font-semibold text-slate-700 text-center border-l w-32 border-slate-200">
                     {act.toUpperCase()}
@@ -295,18 +357,31 @@ export function Dashboard() {
             <tbody className="divide-y divide-slate-200">
               {loading && students.length === 0 ? (
                 <tr>
-                  <td colSpan={ACTIVITIES.length + 1} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={ACTIVITIES.length + 2} className="px-4 py-8 text-center text-slate-500">
                     Loading dashboard...
                   </td>
                 </tr>
               ) : studentsWithData.map(st => (
                 <tr key={st.id} className="hover:bg-slate-50 transition-colors group">
-                  <td className="px-4 py-3 font-medium text-slate-900 sticky left-0 bg-white group-hover:bg-slate-50 shadow-[1px_0_0_0_#e2e8f0]">
+                  <td className="px-4 py-3 font-medium text-slate-900 sticky left-0 bg-white group-hover:bg-slate-50">
+                    <input 
+                      type="checkbox" 
+                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                      checked={selectedStudents.has(st.id)}
+                      onChange={() => toggleStudentSelection(st.id)}
+                    />
+                  </td>
+                  <td className="px-4 py-3 font-medium text-slate-900 sticky left-10 bg-white group-hover:bg-slate-50 shadow-[1px_0_0_0_#e2e8f0]">
                     <div className="flex items-center justify-between">
                       <span>{st.lastname}, {st.firstname}</span>
-                      {st.hasProgressionWarning && (
-                        <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0" title="Progression Warning: Missing earlier activities" />
-                      )}
+                      <div className="flex items-center gap-2">
+                        {st.hasProgressionWarning && (
+                          <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0" title="Progression Warning: Missing earlier activities" />
+                        )}
+                        <button onClick={() => handleDeleteStudent(st.id, `${st.lastname}, ${st.firstname}`)} className="text-slate-400 hover:text-rose-600 opacity-0 group-hover:opacity-100 transition-opacity mr-2">
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
                     </div>
                   </td>
                   {ACTIVITIES.map(act => {
@@ -411,13 +486,13 @@ export function Dashboard() {
             </div>
             <div className="p-6">
               <p className="text-sm text-slate-600 mb-4">
-                Paste a list of students (Lastname, Firstname). One student per line.
+                Paste a list of students (Lastname Firstname or Lastname, Firstname). One student per line.
               </p>
               <textarea
                 value={bulkInput}
                 onChange={e => setBulkInput(e.target.value)}
                 className="w-full h-48 rounded-md border border-slate-300 shadow-sm p-3 font-mono text-sm focus:border-indigo-500 focus:ring-indigo-500"
-                placeholder="Doe, John&#10;Smith, Jane"
+                placeholder="Doe, John&#10;Smith Jane"
               ></textarea>
             </div>
             <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-3">
